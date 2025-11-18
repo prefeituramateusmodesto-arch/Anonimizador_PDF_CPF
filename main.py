@@ -1,13 +1,15 @@
 from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+import fitz
 import re
-import fitz  # PyMuPDF
-from io import BytesIO
-from fastapi.responses import StreamingResponse
+import os
+import uuid
+import shutil
 
 app = FastAPI()
 
-# Liberar CORS para seu frontend
+# CORS Liberado
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,32 +18,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CPF_REGEX = r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b'
+# Regex para CPF
+cpf_pattern = re.compile(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b')
+
+def anonimizar_pdf(input_path, output_path):
+    doc = fitz.open(input_path)
+
+    for page in doc:
+        text_instances = page.search_for(cpf_pattern)
+        for inst in text_instances:
+            page.add_redact_annot(inst, fill=(0, 0, 0))
+        page.apply_redactions()
+
+    doc.save(output_path)
+    doc.close()
 
 
-def anonymize_cpf(text: str) -> str:
-    return re.sub(CPF_REGEX, "***.***.***-**", text)
+@app.get("/")
+def home():
+    return HTMLResponse("<h1>API Rodando ✔</h1><p>Use o frontend para enviar PDFs.</p>")
 
 
-@app.post("/anonymize_pdf/")
-async def anonymize_pdf(file: UploadFile = File(...)):
-    pdf_bytes = await file.read()
-    pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+@app.post("/upload")
+async def upload(files: list[UploadFile] = File(...)):
+    output_files = []
 
-    for page in pdf_doc:
-        text = page.get_text()
-        anonymized_text = anonymize_cpf(text)
+    for file in files:
+        file_id = str(uuid.uuid4())
+        input_path = f"/tmp/{file_id}_{file.filename}"
+        output_path = f"/tmp/ANON_{file.filename}"
 
-        # Se houve CPF substituído, insere o texto modificado por cima
-        if text != anonymized_text:
-            page.insert_text((50, 50), anonymized_text)
+        with open(input_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
 
-    output_bytes = pdf_doc.tobytes()
-    pdf_doc.close()
+        anonimizar_pdf(input_path, output_path)
+        output_files.append(output_path)
 
-    # retorna PDF para download
-    return StreamingResponse(
-        BytesIO(output_bytes),
-        media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=anonimizado.pdf"}
-    )
+    return JSONResponse({"files": output_files})
