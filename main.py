@@ -1,54 +1,25 @@
+from fastapi import FastAPI, UploadFile, File
 import re
-import io
-from fastapi import FastAPI, UploadFile
-from fastapi.responses import StreamingResponse
-from PyPDF2 import PdfReader, PdfWriter
-
+import fitz  # PyMuPDF
 
 app = FastAPI()
 
+CPF_REGEX = r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b'
 
-# Regex de CPF
-CPF_REGEX = r"\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b"
+def anonymize_cpf(text: str) -> str:
+    return re.sub(CPF_REGEX, "***.***.***-**", text)
 
+@app.post("/anonymize_pdf/")
+async def anonymize_pdf(file: UploadFile = File(...)):
+    pdf_bytes = await file.read()
+    pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
-def anonymize_text(text: str) -> str:
-return re.sub(CPF_REGEX, "***.***.***-**", text)
+    for page in pdf_doc:
+        text = page.get_text()
+        anonymized_text = anonymize_cpf(text)
 
+        if text != anonymized_text:
+            page.insert_text((50, 50), anonymized_text)
 
-@app.post("/anonimizar")
-async def anonimizar_pdf(file: UploadFile):
-reader = PdfReader(file.file)
-writer = PdfWriter()
-
-
-for page in reader.pages:
-text = page.extract_text()
-
-
-if text:
-new_text = anonymize_text(text)
-page_data = writer.add_blank_page(
-width=page.mediabox.width,
-height=page.mediabox.height
-)
-page_data.insert_text(
-new_text,
-20,
-page.mediabox.height - 40,
-font_size=12,
-)
-else:
-writer.add_page(page)
-
-
-output_pdf = io.BytesIO()
-writer.write(output_pdf)
-output_pdf.seek(0)
-
-
-return StreamingResponse(
-output_pdf,
-media_type="application/pdf",
-headers={"Content-Disposition": "attachment; filename=anonimizado.pdf"},
-)
+    output_bytes = pdf_doc.tobytes()
+    return {"message": "PDF processado com sucesso!"}
