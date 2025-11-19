@@ -3,72 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <title>Anonimizador de CPF em PDF</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
-            background: #f5f5f5;
-        }
-        .card {
-            width: 50%;
-            margin: auto;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        input {
-            margin-top: 10px;
-        }
-        button {
-            margin-top: 20px;
-            padding: 10px 20px;
-            cursor: pointer;
-            background: #0066ff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-        }
-        .file-link {
-            margin-top: 10px;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    <div class="container">
+        <h1>Anonimizador de CPF em PDF</h1>
 
-<div class="card">
-    <h2>Anonimizador de CPF em PDFs</h2>
-    <p>Selecione um ou mais PDFs para anonimizar:</p>
+        <form id="uploadForm">
+            <input type="file" id="fileInput" name="files" multiple accept="application/pdf">
+            <button type="submit">Enviar e Anonimizar</button>
+        </form>
 
-    <input type="file" id="pdfs" multiple accept="application/pdf">
-    <button onclick="enviar()">Enviar</button>
+        <div id="status"></div>
+    </div>
 
-    <div id="resultado"></div>
-</div>
-
-<script>
-    async function enviar() {
-        const files = document.getElementById("pdfs").files;
-        if (files.length === 0) {
-            alert("Selecione pelo menos 1 PDF");
-            return;
-        }
-
-        const form = new FormData();
-        for (let f of files) form.append("files", f);
-
-        const resposta = await fetch("https://anonimizador-pdf-cpf.onrender.com/upload", { method: "POST", body: form });
-        const data = await resposta.json();
-
-        let div = document.getElementById("resultado");
-        div.innerHTML = "<h3>Downloads:</h3>";
-
-        data.files.forEach(path => {
-            const fileName = path.split("/").pop();
-            div.innerHTML += `<p><a href="${path}" download>${fileName}</a></p>`;
-        });
-    }
-</script>
-
+    <script src="/static/script.js"></script>
 </body>
 </html>
