@@ -1,57 +1,64 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-import fitz
+from flask import Flask, render_template, request, send_file
+import fitz  # PyMuPDF
+import io
 import re
 import os
-import uuid
-import shutil
 
-app = FastAPI()
+app = Flask(__name__)
 
-# CORS Liberado
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+CPF_REGEX = r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b"
 
-# Regex para CPF
-cpf_pattern = re.compile(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b')
-
-def anonimizar_pdf(input_path, output_path):
-    doc = fitz.open(input_path)
+def anonymize_pdf(pdf_bytes):
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
     for page in doc:
-        text_instances = page.search_for(cpf_pattern)
+        text_instances = page.search_for(re.compile(CPF_REGEX))
         for inst in text_instances:
             page.add_redact_annot(inst, fill=(0, 0, 0))
         page.apply_redactions()
 
-    doc.save(output_path)
-    doc.close()
+    output = io.BytesIO()
+    doc.save(output)
+    output.seek(0)
+    return output
 
 
-@app.get("/")
+@app.route("/")
 def home():
-    return HTMLResponse("<h1>API Rodando ✔</h1><p>Use o frontend para enviar PDFs.</p>")
+    return render_template("index.html")
 
 
-@app.post("/upload")
-async def upload(files: list[UploadFile] = File(...)):
-    output_files = []
+@app.route("/upload", methods=["POST"])
+def upload():
+    if "files" not in request.files:
+        return {"error": "Nenhum arquivo enviado"}, 400
+
+    files = request.files.getlist("files")
+    processed_files = []
 
     for file in files:
-        file_id = str(uuid.uuid4())
-        input_path = f"/tmp/{file_id}_{file.filename}"
-        output_path = f"/tmp/ANON_{file.filename}"
+        pdf_content = file.read()
+        anonymized = anonymize_pdf(pdf_content)
 
-        with open(input_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+        processed_files.append(
+            (file.filename.replace(".pdf", "_anon.pdf"), anonymized)
+        )
 
-        anonimizar_pdf(input_path, output_path)
-        output_files.append(output_path)
+    if len(processed_files) == 1:
+        # Se for só 1 arquivo, retornar o PDF direto
+        filename, pdf_data = processed_files[0]
+        return send_file(pdf_data, download_name=filename, as_attachment=True)
 
-    return JSONResponse({"files": output_files})
+    # Se vários → gerar ZIP
+    import zipfile
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as z:
+        for filename, pdf_data in processed_files:
+            z.writestr(filename, pdf_data.getvalue())
+
+    zip_buffer.seek(0)
+    return send_file(zip_buffer, download_name="arquivos_anonimizados.zip", as_attachment=True)
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
